@@ -10,9 +10,12 @@ entry_point!(kernel_main);
 
 fn kernel_main(_boot_info: &'static mut BootInfo) -> ! {
     Logger::init();
-
     Logger::log("Kernel booting...");
     Logger::log("Debug system online");
+
+    kernel::arch::x86_64::cpu::init();
+    Logger::log("GDT initialized");
+    Logger::log("TSS initialized");
 
     halt_loop();
 }
