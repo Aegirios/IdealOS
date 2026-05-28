@@ -2,18 +2,12 @@ use crate::debug::log::Logger;
 use core::panic::PanicInfo;
 
 #[panic_handler]
-pub fn panic(info: &PanicInfo) -> ! {
-    Logger::log("KERNEL PANIC");
-    Logger::log("panic message received");
-
-
+pub fn panic(_info: &PanicInfo) -> ! {
+    Logger::log("≟≟≟ KERNEL PANIC ≟≟≟");
+    Logger::log("(attach GDB on :1234 for full context)");
     loop {
-        x86_hlt();
-    }
-}
-
-fn x86_hlt() {
-    unsafe {
-        core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        unsafe {
+            core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+        }
     }
 }

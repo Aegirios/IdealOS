@@ -1,3 +1,3 @@
 pub mod serial;
 pub mod log;
-mod qemu;
+pub mod qemu;

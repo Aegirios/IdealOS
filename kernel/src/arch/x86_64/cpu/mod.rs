@@ -1,8 +1,10 @@
 pub mod tss;
-mod gdt;
-mod stack;
-mod percpu;
+pub mod gdt;
+pub mod stack;
+pub mod percpu;
 
 pub fn init() {
-    gdt::init();
+    unsafe { 
+        gdt::init(); 
+    }
 }

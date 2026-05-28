@@ -1,29 +1,30 @@
-use lazy_static::lazy_static;
-
-use x86_64::{
-    structures::tss::TaskStateSegment,
-};
-
-use super::{
-    percpu::CpuLocal,
-};
+use x86_64::structures::tss::TaskStateSegment;
+use super::stack::Stack;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
+pub const NMI_IST_INDEX: u16 = 1;
+#[repr(C, align(16))]
+struct CpuStacks {
+    kernel: Stack,
+    double_fault: Stack,
+    nmi: Stack,
+}
 
-lazy_static! {
-    pub static ref CPU_LOCAL: CpuLocal = CpuLocal::new();
+static mut CPU_STACKS: CpuStacks = CpuStacks {
+    kernel: Stack::new(),
+    double_fault: Stack::new(),
+    nmi: Stack::new(),
+};
 
-    pub static ref TSS: TaskStateSegment = {
-        let mut tss = TaskStateSegment::new();
+pub static mut TSS: TaskStateSegment = TaskStateSegment::new();
 
-        // pour les passages inter rings
-        tss.privilege_stack_table[0] =
-            CPU_LOCAL.kernel_stack.top();
-
-        tss.interrupt_stack_table[
-            DOUBLE_FAULT_IST_INDEX as usize
-        ] = CPU_LOCAL.double_fault_stack.top();
-
-        tss
-    };
+/// Appelé une seule fois, avant tout accès concurrent
+/// Initialisation du tss avec les addr des piles, AVANT LE GDT InIT
+pub unsafe fn init() {
+    TSS.privilege_stack_table[0] =
+        CPU_STACKS.kernel.top();
+    TSS.interrupt_stack_table[DOUBLE_FAULT_IST_INDEX as usize] =
+        CPU_STACKS.double_fault.top();
+    TSS.interrupt_stack_table[NMI_IST_INDEX as usize] =
+        CPU_STACKS.nmi.top();
 }
