@@ -4,48 +4,53 @@ use crate::arch::x86_64::cpu::tss::{DOUBLE_FAULT_IST_INDEX, NMI_IST_INDEX};
 use crate::arch::x86_64::halt::halt_loop;
 use crate::debug::log::Logger;
 use super::pic;
+use core::cell::UnsafeCell;
 
-static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
+struct IdtWrapper(UnsafeCell<InterruptDescriptorTable>);
+unsafe impl Sync for IdtWrapper {}
+
+static IDT: IdtWrapper = IdtWrapper(UnsafeCell::new(InterruptDescriptorTable::new()));
 
 /// appelé une seule fois avant sti
 pub unsafe fn init() {
     Logger::log("≺IDT≻ Building...");
+    let idt = &mut  *IDT.0.get();
 
-    IDT.divide_error.set_handler_fn(ex_divide_error);
-    IDT.debug.set_handler_fn(ex_debug);
-    IDT.non_maskable_interrupt.set_handler_fn(ex_nmi);
-    IDT.breakpoint.set_handler_fn(ex_breakpoint);
-    IDT.overflow.set_handler_fn(ex_overflow);
-    IDT.bound_range_exceeded.set_handler_fn(ex_bound_range);
-    IDT.invalid_opcode.set_handler_fn(ex_invalid_opcode);
-    IDT.device_not_available.set_handler_fn(ex_device_na);
-    IDT.double_fault
+    idt.divide_error.set_handler_fn(ex_divide_error);
+    idt.debug.set_handler_fn(ex_debug);
+    idt.non_maskable_interrupt.set_handler_fn(ex_nmi);
+    idt.breakpoint.set_handler_fn(ex_breakpoint);
+    idt.overflow.set_handler_fn(ex_overflow);
+    idt.bound_range_exceeded.set_handler_fn(ex_bound_range);
+    idt.invalid_opcode.set_handler_fn(ex_invalid_opcode);
+    idt.device_not_available.set_handler_fn(ex_device_na);
+    idt.double_fault
         .set_handler_fn(ex_double_fault)
         .set_stack_index(DOUBLE_FAULT_IST_INDEX);
-    IDT.invalid_tss.set_handler_fn(ex_invalid_tss);
-    IDT.segment_not_present.set_handler_fn(ex_seg_not_present);
-    IDT.stack_segment_fault.set_handler_fn(ex_stack_seg);
-    IDT.general_protection_fault.set_handler_fn(ex_gpf);
-    IDT.page_fault.set_handler_fn(ex_page_fault);
-    IDT.x87_floating_point.set_handler_fn(ex_x87);
-    IDT.alignment_check.set_handler_fn(ex_alignment);
-    IDT.machine_check.set_handler_fn(ex_machine_check);
-    IDT.simd_floating_point.set_handler_fn(ex_simd);
-    IDT.virtualization.set_handler_fn(ex_virt);
-    IDT.security_exception.set_handler_fn(ex_security);
+    idt.invalid_tss.set_handler_fn(ex_invalid_tss);
+    idt.segment_not_present.set_handler_fn(ex_seg_not_present);
+    idt.stack_segment_fault.set_handler_fn(ex_stack_seg);
+    idt.general_protection_fault.set_handler_fn(ex_gpf);
+    idt.page_fault.set_handler_fn(ex_page_fault);
+    idt.x87_floating_point.set_handler_fn(ex_x87);
+    idt.alignment_check.set_handler_fn(ex_alignment);
+    idt.machine_check.set_handler_fn(ex_machine_check);
+    idt.simd_floating_point.set_handler_fn(ex_simd);
+    idt.virtualization.set_handler_fn(ex_virt);
+    idt.security_exception.set_handler_fn(ex_security);
 
     // NMI sur pile IST dédiée
-    IDT.non_maskable_interrupt
+    idt.non_maskable_interrupt
         .set_handler_fn(ex_nmi)
         .set_stack_index(NMI_IST_INDEX);
 
-    IDT[pic::IRQ_TIMER].set_handler_fn(irq_timer);
-    IDT[pic::IRQ_KEYBOARD].set_handler_fn(irq_keyboard);
-    IDT[pic::IRQ_CASCADE].set_handler_fn(irq_spurious);
-    IDT[pic::IRQ_SPURIOUS].set_handler_fn(irq_spurious);
+    idt[pic::IRQ_TIMER].set_handler_fn(irq_timer);
+    idt[pic::IRQ_KEYBOARD].set_handler_fn(irq_keyboard);
+    idt[pic::IRQ_CASCADE].set_handler_fn(irq_spurious);
+    idt[pic::IRQ_SPURIOUS].set_handler_fn(irq_spurious);
 
     Logger::log("≺IDT≻ lidt...");
-    IDT.load();
+    idt.load();
     Logger::log("≺IDT≻ OK");
 }
 
@@ -105,8 +110,20 @@ extern "x86-interrupt" fn ex_page_fault(_f: InterruptStackFrame, _c: PageFaultEr
     halt_loop();
 }
 
-extern "x86-interrupt" fn irq_timer(_f: InterruptStackFrame) {
+
+extern "x86-interrupt" fn irq_timer(frame: InterruptStackFrame) {
     pic::end_of_interrupt(pic::IRQ_TIMER);
+
+    if let Some((old_ctx, new_ctx)) = unsafe { crate::scheduler::on_tick() } {
+        unsafe {
+            (*old_ctx).rip = frame.instruction_pointer.as_u64();
+            (*old_ctx).rsp = frame.stack_pointer.as_u64();
+            (*old_ctx).rflags = frame.cpu_flags.bits();
+            (*old_ctx).cs = frame.code_segment.0 as u64;
+            crate::scheduler::switch::switch_context(old_ctx, new_ctx);
+            // on ne peut pas modifier frame directement (x86-interrupt ABI) ; le vrai switch de RIP RSP se fera au prochain tick via le contexte
+        }
+    }
 }
 
 extern "x86-interrupt" fn irq_keyboard(_f: InterruptStackFrame) {
