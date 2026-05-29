@@ -44,7 +44,7 @@ pub unsafe fn init() {
         .set_handler_fn(ex_nmi)
         .set_stack_index(NMI_IST_INDEX);
 
-    idt[pic::IRQ_TIMER].set_handler_fn(irq_timer);
+    idt[pic::IRQ_TIMER].set_handler_addr(x86_64::addr::VirtAddr::new(irq_timer_naked as *const () as u64));
     idt[pic::IRQ_KEYBOARD].set_handler_fn(irq_keyboard);
     idt[pic::IRQ_CASCADE].set_handler_fn(irq_spurious);
     idt[pic::IRQ_SPURIOUS].set_handler_fn(irq_spurious);
@@ -110,27 +110,118 @@ extern "x86-interrupt" fn ex_page_fault(_f: InterruptStackFrame, _c: PageFaultEr
     halt_loop();
 }
 
+#[unsafe(naked)]
+unsafe extern "C" fn irq_timer_naked() {
+    core::arch::naked_asm!(
+        "push rax",
+        "push rbx",
+        "push rcx",
+        "push rdx",
+        "push rsi",
+        "push rdi",
+        "push rbp",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
 
-extern "x86-interrupt" fn irq_timer(frame: InterruptStackFrame) {
-    pic::end_of_interrupt(pic::IRQ_TIMER);
+        "mov al, 0x20",
+        "out 0x20, al",
 
-    if let Some((old_ctx, new_ctx)) = unsafe { crate::scheduler::on_tick() } {
-        unsafe {
-            (*old_ctx).rip = frame.instruction_pointer.as_u64();
-            (*old_ctx).rsp = frame.stack_pointer.as_u64();
-            (*old_ctx).rflags = frame.cpu_flags.bits();
-            (*old_ctx).cs = frame.code_segment.0 as u64;
-            crate::scheduler::switch::switch_context(old_ctx, new_ctx);
-            // on ne peut pas modifier frame directement (x86-interrupt ABI) ; le vrai switch de RIP RSP se fera au prochain tick via le contexte
-        }
+        "sub rsp, 8",
+
+        "call {on_tick_asm}",
+
+        "add rsp, 8",
+
+        "test rax, rax",
+        "jz 2f",
+
+        "mov [rax + 144], rsp",
+
+        "mov rsp, [rdx + 144]",
+
+        "test rsp, rsp",
+        "jz 3f",
+
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rbp",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+        "iretq",
+
+        "2:",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rbp",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rbx",
+        "pop rax",
+        "iretq",
+
+        "3:",
+        "mov rsp, [rdx + 152]",
+        "push 0x10",
+        "push [rdx + 152]",
+        "push 0x200",
+        "push 0x08",
+        "push [rdx + 120]",
+        "mov r15, [rdx + 0]",
+        "mov r14, [rdx + 8]",
+        "mov r13, [rdx + 16]",
+        "mov r12, [rdx + 24]",
+        "mov r11, [rdx + 32]",
+        "mov r10, [rdx + 40]",
+        "mov r9,  [rdx + 48]",
+        "mov r8,  [rdx + 56]",
+        "mov rbp, [rdx + 64]",
+        "mov rdi, [rdx + 72]",
+        "mov rsi, [rdx + 80]",
+        "mov rcx, [rdx + 96]",
+        "mov rbx, [rdx + 104]",
+        "mov rax, [rdx + 112]",
+        "mov rdx, [rdx + 88]",
+        "iretq",
+
+        on_tick_asm = sym on_tick_asm,
+    )
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn on_tick_asm() -> u128 {
+    match crate::scheduler::on_tick() {
+        Some((old, new)) => (old as u128) | ((new as u128) << 64),
+        None => 0,
     }
 }
 
 extern "x86-interrupt" fn irq_keyboard(_f: InterruptStackFrame) {
     use x86_64::instructions::port::Port;
-    let _sc: u8 = unsafe {
-        Port::new(0x60).read()
-    };
+    let _sc: u8 = unsafe { Port::new(0x60).read() };
     pic::end_of_interrupt(pic::IRQ_KEYBOARD);
 }
 

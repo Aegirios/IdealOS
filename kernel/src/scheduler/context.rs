@@ -21,8 +21,8 @@ pub struct TaskContext {
     pub rip: u64,
     pub cs: u64,
     pub rflags: u64,
-    pub rsp: u64,
-    pub ss: u64,
+    pub kernel_rsp: u64,
+    pub stack_top: u64,
 }
 
 impl TaskContext {
@@ -36,9 +36,9 @@ impl TaskContext {
             cs: 0x08,
             // IFà 1 interruptions activées, reserved bits corrects
             rflags: 0x200,
-            rsp: stack_top,
+            kernel_rsp: 0,
             // Sélecteur data kernel ring 0 index 2
-            ss: 0x10,
+            stack_top,
         }
     }
 }

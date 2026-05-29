@@ -1,3 +1,6 @@
+/*
+Switch plus nécessaire, conservé au cas ou
+
 use super::context::TaskContext;
 #[unsafe(naked)]
 pub unsafe extern "C" fn switch_context(
@@ -41,3 +44,5 @@ pub unsafe extern "C" fn switch_context(
         "ret",
     );
 }
+ */
+
