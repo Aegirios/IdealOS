@@ -214,8 +214,10 @@ unsafe extern "C" fn irq_timer_naked() {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn on_tick_asm() -> u128 {
     match crate::scheduler::on_tick() {
-        Some((old, new)) => (old as u128) | ((new as u128) << 64),
-        None => 0,
+        Some((old, new)) => {
+            (old as u128) | ((new as u128) << 64)
+        },
+        None => 0u128,
     }
 }
 

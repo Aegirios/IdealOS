@@ -3,7 +3,7 @@ use spin::Mutex;
 use crate::debug::log::Logger;
 
 const PAGE_SIZE:  u64   = 4096;
-const MAX_FRAMES: usize = 4 * 1024 * 1024; // 16 GB
+const MAX_FRAMES: usize = 512 * 1024; // 16 GB
 const BITMAP_LEN: usize = MAX_FRAMES / 64;
 
 struct Pmm {
@@ -59,7 +59,7 @@ pub fn init(regions: &MemoryRegions) {
     for region in regions.iter() {
         if region.kind != MemoryRegionKind::Usable { continue; }
         let start= ((region.start / PAGE_SIZE) as usize).max(512);
-        let end= (region.end   / PAGE_SIZE) as usize;
+        let end= (region.end / PAGE_SIZE).min(MAX_FRAMES as u64) as usize;
         for frame in start..end {
             pmm.set_free(frame);
         }

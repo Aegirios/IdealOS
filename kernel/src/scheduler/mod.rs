@@ -8,7 +8,13 @@ use context::TaskContext;
 use crate::debug::log::Logger;
 
 const MAX_TASKS: usize = 16;
-static mut TASK_STACKS: [TaskStack; MAX_TASKS] = {
+
+use core::cell::UnsafeCell;
+
+struct StackPool(UnsafeCell<[TaskStack; MAX_TASKS]>);
+unsafe impl Sync for StackPool {}
+
+static TASK_STACKS: StackPool = StackPool(UnsafeCell::new({
     const EMPTY: TaskStack = TaskStack::new();
     [
         EMPTY, EMPTY, EMPTY, EMPTY,
@@ -16,7 +22,7 @@ static mut TASK_STACKS: [TaskStack; MAX_TASKS] = {
         EMPTY, EMPTY, EMPTY, EMPTY,
         EMPTY, EMPTY, EMPTY, EMPTY,
     ]
-};
+}));
 
 struct Sched {
     tasks: [Option<Task>; MAX_TASKS],
@@ -63,6 +69,13 @@ impl Sched {
         }
         self.current
     }
+
+    fn stack_top(slot: usize) -> u64 {
+        unsafe {
+            let stacks = &*TASK_STACKS.0.get();
+            stacks[slot].top_addr()
+        }
+    }
 }
 
 static SCHED: Mutex<Sched> = Mutex::new(Sched::new());
@@ -71,7 +84,7 @@ pub fn spawn(name: &'static str, priority: PriorityClass, entry: fn() -> !) -> O
     let mut s = SCHED.lock();
     for i in 0..MAX_TASKS {
         if s.tasks[i].is_none() {
-            let stack_top = unsafe { TASK_STACKS[i].top_addr() };
+            let stack_top = Sched::stack_top(i);
             let id = TaskId(s.next_id);
             s.next_id += 1;
             s.tasks[i] = Some(Task::new(id, name, priority, entry as u64, stack_top));
@@ -114,7 +127,7 @@ pub fn unblock(id: TaskId) {
 
 /// # Safety : appelé depuis handler d'interruption, interruptions désactivées.
 pub unsafe fn on_tick() -> Option<(*mut TaskContext, *const TaskContext)> {
-    let mut s = SCHED.lock();
+    let mut s = SCHED.try_lock()?;
     s.tick_count += 1;
     if !s.started { return None; }
 
@@ -136,5 +149,7 @@ pub unsafe fn on_tick() -> Option<(*mut TaskContext, *const TaskContext)> {
 
     let old_ctx = &mut s.tasks[cur].as_mut()?.context as *mut TaskContext;
     let new_ctx = & s.tasks[next].as_ref()?.context as *const TaskContext;
+
+    drop(s);
     Some((old_ctx, new_ctx))
 }

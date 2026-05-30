@@ -31,7 +31,7 @@ pub enum TaskState {
 pub struct TaskId(pub u32);
 
 /// Taille de pile par tâche : 2 pages à 8 KB
-pub const TASK_STACK_SIZE: usize = 4096 * 2;
+pub const TASK_STACK_SIZE: usize = 4096 * 4;
 
 #[repr(C, align(16))]
 pub struct TaskStack {
